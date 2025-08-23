@@ -1,22 +1,19 @@
 import faiss
 import numpy as np
-from openai import AzureOpenAI
 import os
 from models import db, VectorMapping, User
 from flask import jsonify
 import threading
 from datetime import datetime, timedelta, timezone
+from sentence_transformers import SentenceTransformer
 
-embedding_model = AzureOpenAI(
-    api_key=os.getenv("MODEL_EMBEDDINGS_API_KEY"),
-    api_version=os.getenv('MODEL_EMBEDDINGS_API_VERSION'),
-    azure_endpoint=os.getenv('MODEL_EMBEDDINGS_BASE_URL')
-)
-
+MODEL_NAME = "BAAI/bge-m3"  # 1024-d, multilingual
 MAX_VECTORS = 3
 IDLE_DAYS = 7
 NUMBER_OF_K = 5
+EMBEDDING_MODEL = 1024
 
+embedding_model = SentenceTransformer(MODEL_NAME, device="cpu")
 
 class SemanticCache:
     _instance = None
@@ -28,7 +25,7 @@ class SemanticCache:
                 cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, embedding_dimensions=1536):
+    def __init__(self, embedding_dimensions=EMBEDDING_MODEL):
         if not hasattr(self, 'initialized'):
             self.embedding_dimensions = embedding_dimensions
             self.query_embedding = None
@@ -42,11 +39,8 @@ class SemanticCache:
         if self.query_embedding:
             return self.query_embedding
 
-        response = self.embedding_model.embeddings.create(
-            input=[text],
-            model="text-embedding-ada-002"
-        )
-        return response.data[0].embedding
+        response = embedding_model.encode(text, convert_to_numpy=True, normalize_embeddings=True)
+        return response
 
     def semantic_cache_get(self, query, user_id, threshold=0.90, k=NUMBER_OF_K):
         try:
@@ -56,7 +50,6 @@ class SemanticCache:
                     return None
 
                 self.query_embedding = self.get_embedding(query)
-                # index = faiss.read_index(index_file_path)
                 query_vec = self.__prepare_query_vectors(self.query_embedding)
 
                 return self.__get_content_by_similarity(query_vec, user_id, threshold, k)
@@ -86,7 +79,7 @@ class SemanticCache:
                     return jsonify({"message": "User not found"}), 404
 
                 new_mapping = VectorMapping(
-                    user_id=user_id, prompt_language=user.prompt_language, embedding=prepared_vectors.tobytes(), content=answer)
+                    user_id=user_id, prompt_language=user.prompt_language, embedding=prepared_vectors.astype("float32").tobytes(), content=answer)
 
                 if scope == "user" and user_id:
                     new_mapping.scope = "user"
@@ -102,8 +95,6 @@ class SemanticCache:
 
                 self.faiss_index.add_with_ids(prepared_vectors, np.array(
                     [new_mapping.id], dtype=np.int64))
-
-                # faiss.write_index(index, index_file_path)
 
                 db.session.commit()
 
