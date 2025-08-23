@@ -1,0 +1,11 @@
+# virtual environment
+.venv/
+**/venv/
+**/venv_linux/
+**/.data/
+
+# Semantic cache files
+*.index
+
+# Python cache
+*.pyc
