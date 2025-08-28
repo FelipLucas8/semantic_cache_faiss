@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify
 import os
-import urllib.parse
 from models import db
 from semantic_cache import SemanticCache
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -8,15 +7,17 @@ from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
-# Configure Database URI:
-params = urllib.parse.quote_plus(
-    f"DRIVER={os.getenv('DB_DRIVER')};SERVER={os.getenv('DB_SERVER')};DATABASE={os.getenv('DB_NAME')};UID={os.getenv('DB_USERNAME')};PWD={os.getenv('DB_PASSWORD')};")
+server = os.getenv("DB_SERVER", 'localhost')
+db_name = os.getenv("DB_NAME", 'semantic_cache')
+driver = os.getenv("DB_DRIVER", '{ODBC Driver 17 for SQL Server}')
 
-# initialization
-app.config['SQLALCHEMY_DATABASE_URI'] = "mssql+pyodbc:///?odbc_connect=%s" % params
-app.config['SQLALCHEMY_COMMIT_ON_TEARDOWN'] = True
+is_local = os.getenv("FLASK_ENV", "development") == "development"
 
-# db start
+if is_local:
+    conn_str = f"DRIVER={driver};SERVER={server};DATABASE={db_name};Trusted_Connection=yes;"
+    app.config["SQLALCHEMY_DATABASE_URI"] = f"mssql+pyodbc:///?odbc_connect={conn_str}"
+
+
 db.init_app(app)
 
 
@@ -38,75 +39,6 @@ scheduler.start()
 
 # ENDSECTION: JOB
 
-# embedding_model = AzureOpenAI(
-#     api_key=os.getenv("AZ_AOAI_EMBEDDINGS_API_KEY"),
-#     api_version=os.getenv('AZ_AOAI_EMBEDDINGS_API_VERSION'),
-#     azure_endpoint=os.getenv('AZ_AOAI_EMBEDDINGS_BASE_URL')
-# )
-
-# embeddins_dim = 1536  # the fixed dimension length of the 'text-embedding-ada-002' model
-
-# cache_data = []
-# indices = {}
-
-
-# def get_embedding(text):
-#     response = embedding_model.embeddings.create(
-#         input=[text],
-#         model="text-embedding-ada-002"
-#     )
-#     return response.data[0].embedding
-
-
-# def semantic_cache_get(query, threshold=0.90):
-#     index_file_path = 'faiss_index.index'
-#     if not os.path.exists(index_file_path):
-#         return None
-
-#     query_vec = get_embedding(query)
-#     index = faiss.read_index(index_file_path)
-#     query_vec = np.array(query_vec).astype('float32').reshape(1, -1)
-#     D, I = index.search(query_vec, k=1)
-#     similarity = 1 - D[0][0] / 2
-#     if similarity >= threshold:
-#         vector_index = I[0][0].item()
-#         original_item = db.session.query(VectorMapping).filter(
-#             VectorMapping.vector_index == vector_index).first()
-
-#         if original_item:
-#             return {
-#                 'content': original_item.content,
-#                 'similarity': similarity.item()
-#             }
-
-#     return None
-
-
-# def semantic_cache_set(query, answer):
-#     query_vec = get_embedding(query)
-#     dimensions = len(query_vec)
-
-#     query_vec = np.array(query_vec).astype('float32')
-#     # Reshape to (number of dimensions, the length of the itens in the array)
-#     query_vec = query_vec.reshape(1, -1)
-
-#     index_file_path = 'faiss_index.index'
-#     if not os.path.exists(index_file_path):
-#         index = faiss.IndexFlatL2(dimensions)
-#         faiss.write_index(index, index_file_path)
-
-#     index = faiss.read_index(index_file_path)
-#     index.add(query_vec)
-#     vector_index = index.ntotal - 1  # FAISS starts to index from zero, so the -1 here
-
-#     faiss.write_index(index, index_file_path)
-
-#     new_mapping = VectorMapping(
-#         vector_index=vector_index, content=answer)
-#     db.session.add(new_mapping)
-#     db.session.commit()
-
-
 @app.route("/query", methods=["POST"])
 def query():
 
@@ -117,7 +49,7 @@ def query():
         semantic_cache = SemanticCache()
 
         cached_answer = semantic_cache.semantic_cache_get(
-            query=user_query, user_id=48)
+            query=user_query, user_id=1)
         if cached_answer:
             return jsonify({"answer": cached_answer['content'], 'similarity': cached_answer['similarity'], "source": "cache"})
 
@@ -130,7 +62,7 @@ def query():
 
         if computed_answer['cacheable'] == 'yes':
             return semantic_cache.semantic_cache_set(
-                user_query, computed_answer['answer'], 48, computed_answer['scope'])
+                user_query, computed_answer['answer'], 1, computed_answer['scope'])
 
         return jsonify({"answer": computed_answer['answer'], "source": "computed"}), 200
 
