@@ -195,7 +195,7 @@ class SemanticCache:
         return prepared_vectors
 
     def __get_content_by_similarity(self, query_vectors, user_id, threshold=0.90, k=NUMBER_OF_K):
-        # the 5 most similar results according to the embeddings
+        # the NUMBER_OF_K most similar results according to the embeddings
         distances, faiss_ids = self.faiss_index.search(query_vectors, k)
 
         distances = distances[0].tolist()

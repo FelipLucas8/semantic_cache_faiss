@@ -18,7 +18,6 @@ if is_local:
     app.config["SQLALCHEMY_DATABASE_URI"] = f"mssql+pyodbc:///?odbc_connect={conn_str}"
 
 
-# db start
 db.init_app(app)
 
 
